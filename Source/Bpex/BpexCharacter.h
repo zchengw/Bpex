@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -8,7 +8,7 @@
 #include "BpexCharacter.generated.h"
 
 
-UCLASS(config=Game)
+UCLASS(config = Game)
 class ABpexCharacter : public ACharacter
 {
 	GENERATED_BODY()
@@ -20,7 +20,7 @@ class ABpexCharacter : public ACharacter
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Camera, meta = (AllowPrivateAccess = "true"))
 	class UCameraComponent* FollowCamera;
-	
+
 	/** MappingContext */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputMappingContext* DefaultMappingContext;
@@ -38,29 +38,44 @@ class ABpexCharacter : public ACharacter
 	class UInputAction* LookAction;
 
 public:
-	ABpexCharacter();
-	
+	ABpexCharacter(const FObjectInitializer& ObjectInitializer);
+
+protected:
+	// APawn interface
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
+	// To add mapping context
+	virtual void BeginPlay();
+
+	virtual void Tick(float DeltaSeconds) override;
 
 protected:
 
 	/** Called for movement input */
 	void Move(const FInputActionValue& Value);
+	void EndMove(const FInputActionValue& Value);
 
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
-			
 
-protected:
-	// APawn interface
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-	
-	// To add mapping context
-	virtual void BeginPlay();
+	void ProcessTriggerJump();
+	void ProcessCompleteJump();
 
 public:
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	FORCEINLINE class UBpexMovementComponent* GetBpexMovement() const { return MovementComponent; }
+
+protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	class UBpexMovementComponent* MovementComponent;
+
+	class UCapsuleComponent* CapsuleComponent;
+
+private:
+	bool bIsMovingBackward = false;
 };
 
