@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "BpexCharacter.h"
 #include "Camera/CameraComponent.h"
@@ -9,20 +9,25 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "public/BpexMovementComponent.h"
 
 
 //////////////////////////////////////////////////////////////////////////
 // ABpexCharacter
 
-ABpexCharacter::ABpexCharacter()
+ABpexCharacter::ABpexCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UBpexMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	// Set size for collision capsule
-	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
-		
+	CapsuleComponent = GetCapsuleComponent();
+	CapsuleComponent->InitCapsuleSize(42.f, 96.0f);
+
 	// Don't rotate when the controller rotates. Let that just affect the camera.
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
+
+	MovementComponent = Cast<UBpexMovementComponent>(GetCharacterMovement());
 
 	// Configure character movement
 	GetCharacterMovement()->bOrientRotationToMovement = true; // Character moves in the direction of input...	
@@ -66,6 +71,20 @@ void ABpexCharacter::BeginPlay()
 	}
 }
 
+void ABpexCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// 类似塞尔达爬墙的输入方式: 
+	// 1. 没有特定的输入键位
+	// 2. 距离墙面足够近
+	// 3. 有向墙的速度
+	if (!MovementComponent->IsClimbing())
+	{
+		MovementComponent->PressedStartClimbing();
+	}
+}
+
 //////////////////////////////////////////////////////////////////////////
 // Input
 
@@ -73,25 +92,26 @@ void ABpexCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInpu
 {
 	// Set up action bindings
 	if (UEnhancedInputComponent* EnhancedInputComponent = CastChecked<UEnhancedInputComponent>(PlayerInputComponent)) {
-		
+
 		//Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Triggered, this, &ABpexCharacter::ProcessTriggerJump);
+		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ABpexCharacter::ProcessCompleteJump);
 
 		//Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ABpexCharacter::Move);
+		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &ABpexCharacter::EndMove);
 
 		//Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ABpexCharacter::Look);
-
 	}
-
 }
 
 void ABpexCharacter::Move(const FInputActionValue& Value)
 {
 	// input is a Vector2D
 	FVector2D MovementVector = Value.Get<FVector2D>();
+
+	bIsMovingBackward = (MovementVector.Y < 0);
 
 	if (Controller != nullptr)
 	{
@@ -100,15 +120,34 @@ void ABpexCharacter::Move(const FInputActionValue& Value)
 		const FRotator YawRotation(0, Rotation.Yaw, 0);
 
 		// get forward vector
-		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-	
+		FVector ForwardDirection;
 		// get right vector 
-		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+		FVector RightDirection;
+
+		if (MovementComponent->IsClimbing())
+		{
+			FVector ClimbSurfaceNormal = MovementComponent->GetClimbSurfaceNormal();
+
+			ForwardDirection = FVector::CrossProduct(MovementComponent->GetClimbSurfaceNormal(), -GetActorRightVector());
+			RightDirection = FVector::CrossProduct(MovementComponent->GetClimbSurfaceNormal(), GetActorUpVector());
+
+		}
+		else
+		{
+			ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+			RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+		}
 
 		// add movement 
 		AddMovementInput(ForwardDirection, MovementVector.Y);
 		AddMovementInput(RightDirection, MovementVector.X);
 	}
+}
+
+void ABpexCharacter::EndMove(const FInputActionValue& Value)
+{
+	bIsMovingBackward = false;
 }
 
 void ABpexCharacter::Look(const FInputActionValue& Value)
@@ -124,6 +163,30 @@ void ABpexCharacter::Look(const FInputActionValue& Value)
 	}
 }
 
+void ABpexCharacter::ProcessTriggerJump()
+{
+	if (MovementComponent->IsClimbing())
+	{
+		if (bIsMovingBackward)
+		{
+			MovementComponent->PressedLeaveClimbing();
+			bIsMovingBackward = false;
+		}
+		else
+		{
+			MovementComponent->PressedClimbDash();
+		}
+	}
+	else
+	{
+		Super::Jump();
+	}
+}
 
-
-
+void ABpexCharacter::ProcessCompleteJump()
+{
+	if (!MovementComponent->IsClimbing())
+	{
+		Super::StopJumping();
+	}
+}
