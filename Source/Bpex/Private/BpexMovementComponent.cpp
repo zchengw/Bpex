@@ -30,6 +30,13 @@ void UBpexMovementComponent::OnMovementUpdated(float DeltaSeconds, const FVector
 		SetMovementMode(EMovementMode::MOVE_Custom, ECustomMovementMode::CMOVE_Climbing);
 		UE_LOG(LogTemp, Warning, TEXT("Change to climbing mode"));
 	}
+
+	if (!IsFlying() && bIsToFly)
+	{
+		SetMovementMode(EMovementMode::MOVE_Flying);
+		UE_LOG(LogTemp, Warning, TEXT("Change to flying mode"));
+	}
+
 	Super::OnMovementUpdated(DeltaSeconds, OldLocation, OldVelocity);
 }
 
@@ -40,10 +47,14 @@ void UBpexMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovemen
 		bOrientRotationToMovement = false;
 		StopMovementImmediately();
 	}
+	else if (IsFlying())
+	{
+		bUseControllerDesiredRotation = true;
+		bOrientRotationToMovement = false;
+	}
 
-	bool bPrevClimb = PreviousMovementMode == MOVE_Custom && PreviousCustomMode == CMOVE_Climbing;
-
-	if (bPrevClimb)
+	// set back
+	if (PreviousMovementMode == MOVE_Custom && PreviousCustomMode == CMOVE_Climbing)
 	{
 		bOrientRotationToMovement = true;
 
@@ -51,6 +62,12 @@ void UBpexMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovemen
 		UpdatedComponent->SetRelativeRotation(StandRotation);
 
 		StopMovementImmediately();
+	}
+	else if (PreviousMovementMode == MOVE_Flying)
+	{
+		// TODO：不一定是这样
+		bUseControllerDesiredRotation = false;
+		bOrientRotationToMovement = true;
 	}
 
 	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
@@ -120,6 +137,9 @@ void UBpexMovementComponent::PhysClimbing(float deltaTime, int32 Iterations)
 
 void UBpexMovementComponent::PressedStartClimbing()
 {
+	// 暂时设置无法从飞行到爬墙状态
+	if (IsFlying()) return;
+	
 	// 1. 距离墙面足够近
 	// 2. 有向墙的速度
 	// 3. not playing montage
@@ -506,4 +526,33 @@ bool UBpexMovementComponent::IsSlopeClimbable()
 	}
 
 	return false;
+}
+
+void UBpexMovementComponent::PressedFlying()
+{
+	// 暂时设置无法从爬墙到飞行状态
+	if (IsClimbing()) return;
+
+	if (!IsFlying())
+	{
+		bIsToFly = true;
+		UE_LOG(LogTemp, Warning, TEXT("Pressed to fly"));
+	}
+	else
+	{
+		bIsToFly = false;
+		UE_LOG(LogTemp, Warning, TEXT("Pressed to Exit fly"));
+	}
+}
+
+void UBpexMovementComponent::PhysFlying(float deltaTime, int32 Iterations)
+{
+	if (!bIsToFly)
+	{
+		SetMovementMode(EMovementMode::MOVE_Falling);
+		StartNewPhysics(deltaTime, Iterations);
+		UE_LOG(LogTemp, Warning, TEXT("Leave Flying"));
+	}
+
+	Super::PhysFlying(deltaTime, Iterations);
 }

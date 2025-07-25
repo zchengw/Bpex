@@ -103,6 +103,9 @@ void ABpexCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInpu
 
 		//Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ABpexCharacter::Look);
+
+		//Flying
+		EnhancedInputComponent->BindAction(FlyAction, ETriggerEvent::Started, this, &ABpexCharacter::ProcessTriggerFly);
 	}
 }
 
@@ -132,11 +135,15 @@ void ABpexCharacter::Move(const FInputActionValue& Value)
 			RightDirection = FVector::CrossProduct(MovementComponent->GetClimbSurfaceNormal(), GetActorUpVector());
 
 		}
+		else if (MovementComponent->IsFlying())
+		{
+			ForwardDirection = FRotationMatrix(Rotation).GetUnitAxis(EAxis::X);
+			RightDirection = FRotationMatrix(Rotation).GetUnitAxis(EAxis::Y);		
+		}
 		else
 		{
 			ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
 			RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-
 		}
 
 		// add movement 
@@ -177,6 +184,10 @@ void ABpexCharacter::ProcessTriggerJump()
 			MovementComponent->PressedClimbDash();
 		}
 	}
+	else if (MovementComponent->IsFlying())
+	{
+		AddMovementInput(FVector::UpVector);
+	}
 	else
 	{
 		Super::Jump();
@@ -189,4 +200,9 @@ void ABpexCharacter::ProcessCompleteJump()
 	{
 		Super::StopJumping();
 	}
+}
+
+void ABpexCharacter::ProcessTriggerFly()
+{
+	MovementComponent->PressedFlying();
 }
