@@ -131,4 +131,16 @@ private:
 	FHitResult DoSphereSweepMultiByChannel(const FVector& Start, const FVector& End);
 	FHitResult DoLineTraceSingleByChannel(const FVector& Start, const FVector& End);
 #pragma endregion
+
+#pragma region Flying
+public:
+	UFUNCTION(BlueprintCallable)
+	void PressedFlying();
+
+protected:
+	virtual void PhysFlying(float deltaTime, int32 Iterations) override;
+
+private:
+	bool bIsToFly = false;
+#pragma endregion
 };

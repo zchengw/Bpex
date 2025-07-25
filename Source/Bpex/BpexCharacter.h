@@ -37,6 +37,10 @@ class ABpexCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* LookAction;
 
+	/** Fly Input Action */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UInputAction* FlyAction;
+
 public:
 	ABpexCharacter(const FObjectInitializer& ObjectInitializer);
 
@@ -60,6 +64,8 @@ protected:
 
 	void ProcessTriggerJump();
 	void ProcessCompleteJump();
+
+	void ProcessTriggerFly();
 
 public:
 	/** Returns CameraBoom subobject **/
