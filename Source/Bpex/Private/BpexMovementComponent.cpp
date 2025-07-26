@@ -16,6 +16,9 @@ void UBpexMovementComponent::BeginPlay()
 	NextClimbNormal = FVector::One();
 
 	AnimInstance = GetCharacterOwner()->GetMesh()->GetAnimInstance();
+
+	bUseControllerDesiredRotation_Default = bUseControllerDesiredRotation;
+	bOrientRotationToMovement_Default = bOrientRotationToMovement;
 }
 
 void UBpexMovementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -45,6 +48,7 @@ void UBpexMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovemen
 	if (IsClimbing())
 	{
 		bOrientRotationToMovement = false;
+		bUseControllerDesiredRotation = false;
 		StopMovementImmediately();
 	}
 	else if (IsFlying())
@@ -56,7 +60,8 @@ void UBpexMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovemen
 	// set back
 	if (PreviousMovementMode == MOVE_Custom && PreviousCustomMode == CMOVE_Climbing)
 	{
-		bOrientRotationToMovement = true;
+		bUseControllerDesiredRotation = bUseControllerDesiredRotation_Default;
+		bOrientRotationToMovement = bOrientRotationToMovement_Default;
 
 		FRotator StandRotation = FRotator(0, UpdatedComponent->GetComponentRotation().Yaw, 0);
 		UpdatedComponent->SetRelativeRotation(StandRotation);
@@ -65,9 +70,8 @@ void UBpexMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovemen
 	}
 	else if (PreviousMovementMode == MOVE_Flying)
 	{
-		// TODO：不一定是这样
-		bUseControllerDesiredRotation = false;
-		bOrientRotationToMovement = true;
+		bUseControllerDesiredRotation = bUseControllerDesiredRotation_Default;
+		bOrientRotationToMovement = bOrientRotationToMovement_Default;
 	}
 
 	Super::OnMovementModeChanged(PreviousMovementMode, PreviousCustomMode);
