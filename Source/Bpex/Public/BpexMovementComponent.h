@@ -29,6 +29,10 @@ public:
 
 	virtual float GetMaxAcceleration() const override;
 
+private:
+	bool bUseControllerDesiredRotation_Default;
+	bool bOrientRotationToMovement_Default;
+
 #pragma region Climbing
 public:
 	/** Collision Detect Parameters */
