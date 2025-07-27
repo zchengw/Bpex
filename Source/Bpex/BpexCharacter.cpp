@@ -9,7 +9,12 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "public/BpexMovementComponent.h"
+#include "BpexPlayerState.h"
+#include "BpexAttributeSet.h"
+#include "BpexAbilitySystemComponent.h"
+#include "GameplayTagContainer.h"
+#include "BpexInputConfig.h"
+#include "BpexMovementComponent.h"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -19,8 +24,7 @@ ABpexCharacter::ABpexCharacter(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UBpexMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	// Set size for collision capsule
-	CapsuleComponent = GetCapsuleComponent();
-	CapsuleComponent->InitCapsuleSize(42.f, 96.0f);
+	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 
 	// Don't rotate when the controller rotates. Let that just affect the camera.
 	bUseControllerRotationPitch = false;
@@ -54,6 +58,27 @@ ABpexCharacter::ABpexCharacter(const FObjectInitializer& ObjectInitializer)
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+}
+
+UAbilitySystemComponent* ABpexCharacter::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
+}
+
+void ABpexCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	InitAbilitySystem();
+
+	GiveDefaultAbilities();
+}
+
+void ABpexCharacter::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+
+	InitAbilitySystem();
 }
 
 void ABpexCharacter::BeginPlay()
@@ -106,6 +131,15 @@ void ABpexCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInpu
 
 		//Flying
 		EnhancedInputComponent->BindAction(FlyAction, ETriggerEvent::Started, this, &ABpexCharacter::ProcessTriggerFly);
+
+		//Combat
+		if (InputConfigAsset)
+		{
+			for (FInputConfig& Cfg : InputConfigAsset->InputConfigs)
+			{
+				EnhancedInputComponent->BindAction(Cfg.InputAction, ETriggerEvent::Started, this, &ABpexCharacter::ActivateSkillByTags, Cfg.SkillTags);
+			}
+		}
 	}
 }
 
@@ -205,4 +239,51 @@ void ABpexCharacter::ProcessCompleteJump()
 void ABpexCharacter::ProcessTriggerFly()
 {
 	MovementComponent->PressedFlying();
+}
+
+void ABpexCharacter::ActivateSkillByTags(const FGameplayTagContainer SkillTags)
+{
+	if (!MovementComponent->IsMovingOnGround())
+	{
+		return;
+	}
+
+	if (!AbilitySystemComponent)
+	{
+		UE_LOG(LogTemp, Error, TEXT("AbilitySystemComponent is null"));
+		return;
+	}
+
+	AbilitySystemComponent->TryActivateAbilitiesByTag(SkillTags);	
+}
+
+void ABpexCharacter::InitAbilitySystem()
+{
+	ABpexPlayerState* BpexPlayerState = GetPlayerState<ABpexPlayerState>();
+
+	check(BpexPlayerState);
+
+	if (AbilitySystemComponent = CastChecked<UBpexAbilitySystemComponent>(BpexPlayerState->GetAbilitySystemComponent()))
+	{
+		AbilitySystemComponent->InitAbilityActorInfo(BpexPlayerState, this);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("AbilitySystemComponent cast failed"));
+	}
+	
+	AttributeSet = BpexPlayerState->GetAttributeSet();
+}
+
+void ABpexCharacter::GiveDefaultAbilities()
+{
+	check(AbilitySystemComponent);
+
+	if (!HasAuthority()) return;
+
+	for (TSubclassOf<UGameplayAbility> Ability : DefaultAbilities)
+	{
+		const FGameplayAbilitySpec AbilitySpec(Ability, 1);
+		AbilitySystemComponent->GiveAbility(AbilitySpec);
+	}
 }

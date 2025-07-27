@@ -5,11 +5,12 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
+#include "AbilitySystemInterface.h"
 #include "BpexCharacter.generated.h"
 
 
 UCLASS(config = Game)
-class ABpexCharacter : public ACharacter
+class ABpexCharacter : public ACharacter, public IAbilitySystemInterface // 必须继承这个interface并重载GetAbilitySystemComponent()
 {
 	GENERATED_BODY()
 
@@ -41,8 +42,18 @@ class ABpexCharacter : public ACharacter
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
 	class UInputAction* FlyAction;
 
+	/** Combat Input Config */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Input, meta = (AllowPrivateAccess = "true"))
+	class UBpexInputConfig* InputConfigAsset;
+
 public:
 	ABpexCharacter(const FObjectInitializer& ObjectInitializer);
+
+	/* IAbilitySystemInterface */
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
+	virtual void PossessedBy(AController* NewController) override;
+	virtual void OnRep_PlayerState() override;
 
 protected:
 	// APawn interface
@@ -67,6 +78,14 @@ protected:
 
 	void ProcessTriggerFly();
 
+	/** Combat **/
+	void ActivateSkillByTags(const struct FGameplayTagContainer SkillTags);
+
+private:
+	void InitAbilitySystem();
+
+	void GiveDefaultAbilities();
+
 public:
 	/** Returns CameraBoom subobject **/
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
@@ -77,11 +96,20 @@ public:
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	class UBpexMovementComponent* MovementComponent;
+	TObjectPtr<class UBpexMovementComponent> MovementComponent;
 
-	class UCapsuleComponent* CapsuleComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	TObjectPtr<class UBpexAbilitySystemComponent> AbilitySystemComponent;
 
+	UPROPERTY()
+	TObjectPtr<class UBpexAttributeSet> AttributeSet;
+
+	// 蓝图里面配置
+	UPROPERTY(EditDefaultsOnly, Category = "Ability")
+	TArray<TSubclassOf<class UGameplayAbility>> DefaultAbilities;
+	
 private:
 	bool bIsMovingBackward = false;
+
 };
 
