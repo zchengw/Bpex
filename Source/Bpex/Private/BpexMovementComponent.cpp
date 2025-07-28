@@ -17,6 +17,11 @@ void UBpexMovementComponent::BeginPlay()
 
 	AnimInstance = GetCharacterOwner()->GetMesh()->GetAnimInstance();
 
+	//AnimInstance->OnMontageEnded.AddDynamic(this, &UBpexMovementComponent::OnClimbMontageEnd);
+	AnimInstance->OnMontageBlendingOut.AddDynamic(this, &UBpexMovementComponent::OnClimbMontageEnd);
+
+	InitMontageState();
+
 	bUseControllerDesiredRotation_Default = bUseControllerDesiredRotation;
 	bOrientRotationToMovement_Default = bOrientRotationToMovement;
 }
@@ -50,6 +55,15 @@ void UBpexMovementComponent::OnMovementModeChanged(EMovementMode PreviousMovemen
 		bOrientRotationToMovement = false;
 		bUseControllerDesiredRotation = false;
 		StopMovementImmediately();
+
+		if (PreviousMovementMode == MOVE_Falling)
+		{
+			PlayClimbMontage(AirGrabMontage);
+		}
+		else 
+		{
+			PlayClimbMontage(GroundGrabMontage);
+		}		
 	}
 	else if (IsFlying())
 	{
@@ -106,11 +120,7 @@ void UBpexMovementComponent::PhysClimbing(float deltaTime, int32 Iterations)
 		return;
 	}
 
-	if (ShouldStopClimbing() || (!SweepClimableSurface() && !AnimInstance->IsAnyMontagePlaying()))
-	{
-		LeaveClimbing(deltaTime, Iterations);
-		return;
-	}
+	CheckShouldInterruptClimbing();
 
 	CalcClimbSurfaceInfo();
 
@@ -126,7 +136,7 @@ void UBpexMovementComponent::PhysClimbing(float deltaTime, int32 Iterations)
 
 	FVector OldLocation = UpdatedComponent->GetComponentLocation();
 
-	MoveAlongWall(deltaTime);
+	ClimbMove(deltaTime);
 
 	// Velocity based on distance traveled.
 	if (!HasAnimRootMotion() && !CurrentRootMotion.HasOverrideVelocity())
@@ -134,7 +144,10 @@ void UBpexMovementComponent::PhysClimbing(float deltaTime, int32 Iterations)
 		Velocity = (UpdatedComponent->GetComponentLocation() - OldLocation) / deltaTime;
 	}
 
-	SnapToClimbingSurface(deltaTime);
+	if (!IsMontagePlaying(LedgeClimbMontage))
+	{
+		SnapToClimbingSurface(deltaTime);
+	}
 
 	TryClimbUpLedge();
 }
@@ -155,12 +168,33 @@ void UBpexMovementComponent::PressedStartClimbing()
 
 void UBpexMovementComponent::PressedLeaveClimbing()
 {
-	bIsToClimb = false;
+	if (IsClimbing() && !AnimInstance->IsAnyMontagePlaying())
+	{
+		if (!PlayClimbMontage(ToFallMontage))
+		{
+			// 如果Montage播放不成功，手动切换mode
+			ClimbToFall();
+		}
+	}
 }
 
 void UBpexMovementComponent::PressedClimbDash()
 {
 	bIsToClimbDash = true;
+}
+
+void UBpexMovementComponent::ClimbToWalk()
+{
+	bIsToClimb = false;
+	SetMovementMode(EMovementMode::MOVE_Walking);
+	UE_LOG(LogTemp, Warning, TEXT("ClimbToWalk: MOVE_Walking"));
+}
+
+void UBpexMovementComponent::ClimbToFall()
+{
+	bIsToClimb = false;
+	SetMovementMode(EMovementMode::MOVE_Falling);
+	UE_LOG(LogTemp, Warning, TEXT("ClimbToFall: MOVE_Falling"));
 }
 
 bool UBpexMovementComponent::IsClimbing() const
@@ -190,9 +224,6 @@ bool UBpexMovementComponent::IsFowardCloseWall()
 	FVector LeftEnd = Start + DetectLength * LeftRay;
 	FVector RightEnd = Start + DetectLength * RightRay;
 
-	//DrawDebugLine(GetWorld(), Start, LeftEnd, FColor::Yellow, false);
-	//DrawDebugLine(GetWorld(), Start, RightEnd, FColor::Yellow, false);
-
 	FHitResult HitResultLeft;
 	FHitResult HitResultRight;
 
@@ -221,7 +252,7 @@ bool UBpexMovementComponent::IsFowardCloseWall()
 		// 判断速度和加速的方向是否接近角色的正面
 		float VelocityDot = FVector::DotProduct(ForwardVector, Velocity.GetSafeNormal());
 		float AccelerationDot = FVector::DotProduct(ForwardVector, GetCurrentAcceleration().GetSafeNormal());
-		return VelocityDot > 0.1f && AccelerationDot > 0.8f;
+		return VelocityDot > 0.f && AccelerationDot > 0.8f;
 	}
 
 	return false;
@@ -258,12 +289,13 @@ bool UBpexMovementComponent::IsUpCloseLedge()
 		// 速度要朝向角色up方向
 		float VelocityDot = FVector::DotProduct(UpdatedComponent->GetUpVector(), Velocity.GetSafeNormal());
 		bool bIsMovingTowardsLedge = VelocityDot > 0.0f;
-		return bIsMovingTowardsLedge;
+		//return bIsMovingTowardsLedge;
+		return true;
 	}
 	return false;
 }
 
-void UBpexMovementComponent::MoveAlongWall(float deltaTime)
+void UBpexMovementComponent::ClimbMove(float deltaTime)
 {
 	const FVector Adjusted = Velocity * deltaTime;
 
@@ -273,9 +305,7 @@ void UBpexMovementComponent::MoveAlongWall(float deltaTime)
 
 	if (Hit.Time < 1.f)
 	{
-		//UE_LOG(LogTemp, Warning, TEXT("Hit: MoveAlongWall"));
-
-		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 9.0f, 12, FColor::Yellow, false, 5.0f);
+		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 4.0f, 12, FColor::Yellow, false, 5.0f);
 
 		HandleImpact(Hit, deltaTime, Adjusted);
 		SlideAlongSurface(Adjusted, (1.f - Hit.Time), Hit.Normal, Hit, true);
@@ -292,96 +322,141 @@ void UBpexMovementComponent::SnapToClimbingSurface(float deltaTime)
 
 	const FVector Offset = -NextClimbNormal * (ForwardDifference.Length() - DistanceFromSurface);
 
-	const FVector Delta = Offset * MaxClimbingSpeed * deltaTime;
-
-	DrawDebugLine(GetWorld(), Location, Location + Delta, FColor::Red, false);
+	FVector Delta = Offset.GetSafeNormal() * MaxClimbingSpeed * deltaTime;
+	Delta = Delta.Length() > Offset.Length() ? Offset : Delta;
 
 	FHitResult Hit(1.f);
 	SafeMoveUpdatedComponent(Delta, Rotation, true, Hit);
 
 	if (Hit.Time < 1.f)
 	{
-		//UE_LOG(LogTemp, Warning, TEXT("Hit: SnapToClimbingSurface"));
-
-		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 9.0f, 12, FColor::Red, false, 5.0f);
+		DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 4.0f, 12, FColor::Red, false, 5.0f);
 
 		HandleImpact(Hit, deltaTime, Delta);
 		SlideAlongSurface(Delta, (1.f - Hit.Time), Hit.Normal, Hit, true);
 	}
-	
-	//UpdatedComponent->MoveComponent(Delta, Rotation, true);
 }
 
-bool UBpexMovementComponent::ShouldStopClimbing()
+bool UBpexMovementComponent::CheckShouldInterruptClimbing()
 {
-	// 1. 到达地面
-	// 2. 手动退出爬墙
-	// 3. 墙面倾斜度不适合攀爬
-
-	if (!IsSlopeClimbable())
+	// 四种退出方式
+	// 1. 到达地面：站立过渡
+	// 2. 被打断: 掉落（墙面倾斜）
+	// 3. 手动退出
+	// 4. 到达顶端
+	// 这个函数只处理前两种。
+	
+	if (IsMontagePlaying(LedgeClimbMontage))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("slope not climbable"));
+		UE_LOG(LogTemp, Warning, TEXT("LedgeClimbMontage is playing"));
 		return true;
 	}
 
-	bool bIsFloor = IsDownCloseFloor();
-	if (bIsFloor) UE_LOG(LogTemp, Warning, TEXT("bIsFloor is true"));
 
-	if (!bIsToClimb) UE_LOG(LogTemp, Warning, TEXT("bIsToClimb is false"));
-
-	return !bIsToClimb || bIsFloor;
-}
-
-void UBpexMovementComponent::LeaveClimbing(float deltaTime, int32 Iterations)
-{
-	bIsToClimb = false;
-	SetMovementMode(EMovementMode::MOVE_Falling);
-	StartNewPhysics(deltaTime, Iterations);
-	UE_LOG(LogTemp, Warning, TEXT("LeaveClimbing to MOVE_Falling"));
-}
-
-bool UBpexMovementComponent::TryClimbUpLedge()
-{
-	if (AnimInstance && LedgeClimbMontage && AnimInstance->Montage_IsPlaying(LedgeClimbMontage))
+	if (IsDownCloseFloor())
 	{
-		return false;
+		if (!PlayClimbMontage(ToGroundMontage))
+		{
+			ClimbToWalk();
+		}
+		UE_LOG(LogTemp, Warning, TEXT("Interrupt Climbing: down close to floor"));
+		return true;
 	}
 
-	if (IsUpCloseLedge())
+	if (!IsSlopeClimbable() || !SweepClimableSurface())
 	{
-		const FRotator StandRotation = FRotator(0, UpdatedComponent->GetComponentRotation().Yaw, 0);
-		UpdatedComponent->SetRelativeRotation(StandRotation);
-
-		float Result = AnimInstance->Montage_Play(LedgeClimbMontage);
-
-		FOnMontageBlendingOutStarted MontageDelegate;
-		MontageDelegate.BindUObject(this, &UBpexMovementComponent::OnClimbMontageEnd);
-		AnimInstance->Montage_SetBlendingOutDelegate(MontageDelegate, LedgeClimbMontage);
-
-		if (Result == 0.f)
-		{
-			UE_LOG(LogTemp, Error, TEXT("Montage failed to play!"));
-		}
+		// 直接被打断，没有montage
+		UE_LOG(LogTemp, Warning, TEXT("Interrupt Climbing: wall not climbable any more"));
+		ClimbToFall();
+		
 		return true;
 	}
 
 	return false;
 }
 
+void UBpexMovementComponent::TryClimbUpLedge()
+{
+	if (IsMontagePlaying(LedgeClimbMontage)) return;
+
+	if (IsUpCloseLedge())
+	{
+		if (!PlayClimbMontage(LedgeClimbMontage))
+		{
+			// 如果LedgeClimbMontage有问题，播放不了，就切到Fall状态
+			ClimbToFall();
+		}
+
+		const FRotator StandRotation = FRotator(0, UpdatedComponent->GetComponentRotation().Yaw, 0);
+		UpdatedComponent->SetRelativeRotation(StandRotation);
+	}
+
+	return;
+}
+
 void UBpexMovementComponent::OnClimbMontageEnd(UAnimMontage* Montage, bool bInterrupted)
 {
-	UE_LOG(LogTemp, Warning, TEXT("Trigger"));
 	if (Montage == LedgeClimbMontage)
 	{
-		bIsToClimb = false;
-
-		if (!bInterrupted)
-		{
-			SetMovementMode(EMovementMode::MOVE_Walking);
-			UE_LOG(LogTemp, Warning, TEXT("OnClimbMontageEnd to MOVE_Walking"));
-
-		}
+		UE_LOG(LogTemp, Warning, TEXT("OnClimbMontageEnd: LedgeClimbMontage"));
+		ClimbToWalk();
 	}
+
+	if (Montage == ToGroundMontage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("OnClimbMontageEnd: ToGroundMontage"));
+		ClimbToWalk();
+	}
+
+	if (Montage == ToFallMontage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("OnClimbMontageEnd: ToFallMontage"));
+		ClimbToFall();
+	}
+
+	if (ClimbMontageState.Contains(Montage)) ClimbMontageState[Montage] = false;
+}
+
+bool UBpexMovementComponent::PlayClimbMontage(UAnimMontage* MontageToPlay)
+{
+	if (!AnimInstance)
+	{
+		UE_LOG(LogTemp, Error, TEXT("AnimInstance is NULL"));
+		return false;
+	}
+
+	if (!MontageToPlay)
+	{
+		return false;
+	}
+
+	if (AnimInstance->Montage_IsPlaying(MontageToPlay)) return true;
+
+	float Result = AnimInstance->Montage_Play(MontageToPlay);
+	if (Result == 0.f)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Montage failed to play: %s"), *MontageToPlay->GetName());
+		return false;
+	}
+
+	if (ClimbMontageState.Contains(MontageToPlay)) ClimbMontageState[MontageToPlay] = true;
+
+	return true;
+}
+
+bool UBpexMovementComponent::IsMontagePlaying(UAnimMontage* Montage)
+{
+	if (AnimInstance->Montage_IsPlaying(Montage)) return true;
+	if (ClimbMontageState.Contains(Montage) && ClimbMontageState[Montage] == true) return true;
+
+	return false;
+}
+
+void UBpexMovementComponent::InitMontageState()
+{
+	ClimbMontageState.Add(LedgeClimbMontage, false);
+	ClimbMontageState.Add(ToGroundMontage, false);
+	ClimbMontageState.Add(ToFallMontage, false);
 }
 
 bool UBpexMovementComponent::EyeHeightTrace()
@@ -415,8 +490,8 @@ bool UBpexMovementComponent::IsCloseWalkableLedge()
 	const FVector FloorTraceEnd = EyeTraceEnd - UpdatedComponent->GetUpVector() * (EyeHeightSphereRadius + CollisionCapsuleHalfHeight + EyeHeight);
 	FHitResult FloorHit = DoLineTraceSingleByChannel(EyeTraceEnd, FloorTraceEnd);
 
-	DrawDebugSphere(GetWorld(), EyeTraceEnd, 5.0f, 12, FColor::Blue, false, 1.0f);
-	DrawDebugLine(GetWorld(), EyeTraceEnd, FloorTraceEnd, FColor::Blue, false, 1.0f);
+	//DrawDebugSphere(GetWorld(), EyeTraceEnd, 5.0f, 12, FColor::Blue, false, 1.0f);
+	//DrawDebugLine(GetWorld(), EyeTraceEnd, FloorTraceEnd, FColor::Blue, false, 1.0f);
 
 	if (FloorHit.bBlockingHit)
 	{
@@ -452,7 +527,6 @@ void UBpexMovementComponent::CalcClimbSurfaceInfo()
 
 	for (const auto& Hit : ClimableSurfaceHitResults)
 	{
-		DrawDebugPoint(GetWorld(), Hit.Location, 10.f, FColor::Red, false);
 		DrawDebugPoint(GetWorld(), Hit.ImpactPoint, 10.f, FColor::Blue, false);
 
 		NextClimbNormal += Hit.ImpactNormal;
@@ -483,7 +557,7 @@ TArray<FHitResult> UBpexMovementComponent::DoCapsuleSweepMultiByChannel(const FV
 	TArray<FHitResult> OutHits;
 	bool IsHit = GetWorld()->SweepMultiByChannel(OutHits, Start, End, Rot, ECC_WorldStatic, CollisionShape, ClimbQueryParams);
 
-	DrawDebugCapsule(GetWorld(), End, CollisionCapsuleHalfHeight, CollisionCapsuleRadius, Rot, FColor::Green);
+	//DrawDebugCapsule(GetWorld(), End, CollisionCapsuleHalfHeight, CollisionCapsuleRadius, Rot, FColor::Green);
 
 	return OutHits;
 }
@@ -495,9 +569,7 @@ FHitResult UBpexMovementComponent::DoSphereSweepMultiByChannel(const FVector& St
 	FHitResult OutHit;
 	bool IsHit = GetWorld()->SweepSingleByChannel(OutHit, Start, End, FQuat::Identity, ECC_WorldStatic, CollisionShape, ClimbQueryParams);
 
-	DrawDebugSphere(GetWorld(), Start, 5, 5, FColor::Yellow);
-
-	DrawDebugSphere(GetWorld(), End, EyeHeightSphereRadius, 5, FColor::Yellow);
+	//DrawDebugSphere(GetWorld(), End, EyeHeightSphereRadius, 5, FColor::Yellow);
 
 	return OutHit;
 }
@@ -514,7 +586,7 @@ FHitResult UBpexMovementComponent::DoLineTraceSingleByChannel(const FVector& Sta
 		ClimbQueryParams
 	);
 
-	DrawDebugLine(GetWorld(), Start, End, FColor::Yellow, false);
+	//DrawDebugLine(GetWorld(), Start, End, FColor::Yellow, false);
 
 	return OutHit;
 }

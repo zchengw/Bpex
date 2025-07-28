@@ -29,6 +29,8 @@ public:
 
 	virtual float GetMaxAcceleration() const override;
 
+	//virtual FVector ConstrainAnimRootMotionVelocity(const FVector& RootMotionVelocity, const FVector& CurrentVelocity) const override;
+
 private:
 	bool bUseControllerDesiredRotation_Default;
 	bool bOrientRotationToMovement_Default;
@@ -71,11 +73,26 @@ private:
 	UPROPERTY(Category = "Character Movement: Climbing", EditDefaultsOnly)
 	UAnimMontage* LedgeClimbMontage;
 
+	UPROPERTY(Category = "Character Movement: Climbing", EditDefaultsOnly)
+	UAnimMontage* GroundGrabMontage;
+
+	UPROPERTY(Category = "Character Movement: Climbing", EditDefaultsOnly)
+	UAnimMontage* AirGrabMontage;
+
+	// TODO: 没找到合适动画
+	UPROPERTY(Category = "Character Movement: Climbing", EditDefaultsOnly)
+	UAnimMontage* ToGroundMontage;
+
+	UPROPERTY(Category = "Character Movement: Climbing", EditDefaultsOnly)
+	UAnimMontage* ToFallMontage;
+
 	UPROPERTY()
 	UAnimInstance* AnimInstance;
 
 	bool bIsToClimb = false;
 	bool bIsToClimbDash = false;
+
+	TMap<UAnimMontage*, bool> ClimbMontageState; // is montage playing? Montage_IsPlaying判定不准确
 
 	FVector NextClimbNormal;
 	FVector NextClimbPosition;
@@ -101,6 +118,11 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void PressedClimbDash();
 
+	UFUNCTION(BlueprintCallable)
+	void ClimbToWalk();
+	UFUNCTION(BlueprintCallable)
+	void ClimbToFall();
+
 	FVector GetClimbSurfaceNormal();
 
 private:
@@ -113,15 +135,19 @@ private:
 	bool IsDownCloseFloor();
 	bool IsUpCloseLedge();
 
-	void MoveAlongWall(float deltaTime);
+	void ClimbMove(float deltaTime);
 	void SnapToClimbingSurface(float deltaTime);
 
-	bool ShouldStopClimbing();
-	void LeaveClimbing(float deltaTime, int32 Iterations);
+	bool CheckShouldInterruptClimbing();
 
-	bool TryClimbUpLedge();
-
+	void TryClimbUpLedge();
+	
+	UFUNCTION()
 	void OnClimbMontageEnd(UAnimMontage* Montage, bool bInterrupted);
+	bool PlayClimbMontage(UAnimMontage* MontageToPlay);
+	bool IsMontagePlaying(UAnimMontage* Montage);
+
+	void InitMontageState();
 
 	bool EyeHeightTrace();
 	bool IsCloseWalkableLedge();
