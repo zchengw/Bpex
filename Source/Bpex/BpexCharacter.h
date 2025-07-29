@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
+#include "GameplayTagContainer.h"
 #include "AbilitySystemInterface.h"
 #include "BpexCharacter.generated.h"
 
@@ -79,7 +80,8 @@ protected:
 	void ProcessTriggerFly();
 
 	/** Combat **/
-	void ActivateSkillByTags(const struct FGameplayTagContainer SkillTags);
+	void ActivateSkillByTags(const FGameplayTagContainer SkillTags);
+	void ProcessSkillInput(const FGameplayTagContainer SkillTags);
 
 private:
 	void InitAbilitySystem();
@@ -93,6 +95,14 @@ public:
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
 	FORCEINLINE class UBpexMovementComponent* GetBpexMovement() const { return MovementComponent; }
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite)
+	bool bCanPreinput = false;
+	
+	UFUNCTION(BlueprintCallable)
+	void ActivatePreinput();
+	UFUNCTION(BlueprintCallable)
+	void ResetPreinput();
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
@@ -110,6 +120,6 @@ protected:
 	
 private:
 	bool bIsMovingBackward = false;
-
+	FGameplayTagContainer PreinputTags;
 };
 

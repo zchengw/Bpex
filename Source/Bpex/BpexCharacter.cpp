@@ -137,7 +137,7 @@ void ABpexCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInpu
 		{
 			for (FInputConfig& Cfg : InputConfigAsset->InputConfigs)
 			{
-				EnhancedInputComponent->BindAction(Cfg.InputAction, ETriggerEvent::Started, this, &ABpexCharacter::ActivateSkillByTags, Cfg.SkillTags);
+				EnhancedInputComponent->BindAction(Cfg.InputAction, ETriggerEvent::Started, this, &ABpexCharacter::ProcessSkillInput, Cfg.SkillTags);
 			}
 		}
 	}
@@ -243,18 +243,28 @@ void ABpexCharacter::ProcessTriggerFly()
 
 void ABpexCharacter::ActivateSkillByTags(const FGameplayTagContainer SkillTags)
 {
-	if (!MovementComponent->IsMovingOnGround())
-	{
-		return;
-	}
-
 	if (!AbilitySystemComponent)
 	{
 		UE_LOG(LogTemp, Error, TEXT("AbilitySystemComponent is null"));
 		return;
 	}
 
+	if (!MovementComponent->IsMovingOnGround())
+	{
+		return;
+	}
+
 	AbilitySystemComponent->TryActivateAbilitiesByTag(SkillTags);	
+}
+
+void ABpexCharacter::ProcessSkillInput(const FGameplayTagContainer SkillTags)
+{
+	ActivateSkillByTags(SkillTags);
+	
+	if (bCanPreinput)
+	{
+		PreinputTags = SkillTags;
+	}
 }
 
 void ABpexCharacter::InitAbilitySystem()
@@ -286,4 +296,14 @@ void ABpexCharacter::GiveDefaultAbilities()
 		const FGameplayAbilitySpec AbilitySpec(Ability, 1);
 		AbilitySystemComponent->GiveAbility(AbilitySpec);
 	}
+}
+
+void ABpexCharacter::ActivatePreinput()
+{
+	ActivateSkillByTags(PreinputTags);
+}
+
+void ABpexCharacter::ResetPreinput()
+{
+	PreinputTags.Reset();
 }
