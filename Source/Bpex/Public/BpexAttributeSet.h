@@ -32,12 +32,12 @@ public:
 	virtual bool PreGameplayEffectExecute(struct FGameplayEffectModCallbackData& Data) override;
 	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
 
-	UPROPERTY()
+	UPROPERTY(Replicated)
 	FGameplayAttributeData Health;
 	ATTRIBUTE_ACCESSORS(UBpexAttributeSet, Health);
 
 	// 暴击概率
-	UPROPERTY()
+	UPROPERTY(Replicated)
 	FGameplayAttributeData CriticalStrike;
 	ATTRIBUTE_ACCESSORS(UBpexAttributeSet, CriticalStrike);
 	
